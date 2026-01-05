@@ -88,6 +88,64 @@ if encoded_list:
 
                     st.divider()
                     # Veri önizlemesi (Tüm satırlar gösteriliyor)
+
+                    # --- SESLİ KOMUT ÖZELLİĞİ (MOBİL MİKROFON) ---
+
+                    st.write("🎙️ Sesli Sorgu")
+
+                    js_code = """
+                    <script>
+                    function startDictation() {
+                        if (window.hasOwnProperty('webkitSpeechRecognition')) {
+                            var recognition = new webkitSpeechRecognition();
+                            recognition.continuous = false;
+                            recognition.interimResults = false;
+                            recognition.lang = "tr-TR";
+                            recognition.start();
+
+                            recognition.onresult = function(e) {
+                                recognition.stop();
+                                var text = e.results[0][0].transcript;
+                                
+                                // Sonucu Streamlit'in chat input'una yaz ve enter'a bas
+                                // Streamlit input'una JavaScript ile doğrudan erişmek zordur,
+                                // bu yüzden soruyu bir yerde gösterip kullanıcının kopyalamasını isteyeceğiz 
+                                // ya da otomatik göndermeyi deneyeceğiz.
+                                
+                                // En temiz yol: Kullanıcıya sorgusunu gösterip onaylatmak
+                                
+                                alert("Söylediğiniz: " + text);
+                                
+                                // Gizli bir input alanına yazıp Enter'a basma denemesi
+                                var chatInput = document.querySelector('[data-testid="stChatInputTextArea"]');
+                                if(chatInput) {
+                                    chatInput.value = text;
+                                    // Enter tuşu olayını tetikle
+                                    var event = new KeyboardEvent('keydown', {bubbles: true, cancelable: true, keyCode: 13});
+                                    chatInput.dispatchEvent(event);
+                                } else {
+                                    alert("Lütfen metin kutusuna tıklayıp konuştuğunuz yazıyı tekrar yapıştırın veya sesi tekrar açın.");
+                                }
+                            };
+
+                            recognition.onerror = function(e) {
+                                recognition.stop();
+                                alert("Dinleme hatası: " + e.error);
+                            }
+                        } else {
+                            alert("Tarayıcınız sesli aramayı desteklemiyor.");
+                        }
+                    }
+                    </script>
+                    <button onclick="startDictation()" style="width:100%; padding:15px; background-color:#eef2ff; border:2px solid #667eea; border-radius:10px; color:#667eea; font-weight:bold; font-size:16px; cursor:pointer;">
+                        🎙️ Tıklayın ve Konuşun (Sesli Sorgu)
+                    </button>
+                    """
+
+                    # HTML kodunu ekrana bas
+                    st.components.v1.html(js_code)
+                    # Sesli komut js sonu
+
                     st.dataframe(df)
 
                     # --- SOHBET KISMI ---
