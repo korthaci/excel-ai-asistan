@@ -1,179 +1,118 @@
 import streamlit as st
 import pandas as pd
-import os
-import sqlite3
 from openai import OpenAI
 from dotenv import load_dotenv
+import os
+import json
+import urllib.parse
+import time
 
-# --- 1. AYARLAR & API ---
 load_dotenv()
 st.set_page_config(page_title="Finans Asistanı", layout="wide")
 
 @st.cache_resource
 def get_client():
     api_key = os.getenv("GROQ_API_KEY")
-    if not api_key:
-        st.error("GROQ_API_KEY bulunamadı (.env dosyasını kontrol et).")
-        return None
+    if not api_key: return None
     return OpenAI(api_key=api_key, base_url="https://api.groq.com/openai/v1")
 
 client = get_client()
 
-# --- 2. VERİTABANI YÖNETİMİ (SQLite) ---
-# Dosyaları kaydetmek için yerel bir veritabanı oluşturuyoruz
-def init_db():
-    conn = sqlite3.connect('sheets.db')
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS sheets (id INTEGER PRIMARY KEY, name TEXT, url TEXT)''')
-    conn.commit()
-    conn.close()
+# --- URL'DEN DİZİ (ARRAY) ALMA ---
+query_params = st.query_params
+encoded_list = query_params.get("encoded_list", None)
 
-def get_sheets():
-    conn = sqlite3.connect('sheets.db')
-    c = conn.cursor()
-    c.execute("SELECT id, name, url FROM sheets")
-    data = c.fetchall()
-    conn.close()
-    return data
+# --- ANA SAYFA URL'İ (KENDİ SUNUCUNDAKİ HTML DOSYASI) ---
+# BURAYI KENDİ REAL URL'İNLE DEĞİŞTİR
+ANA_SAYFA_URL = "https://vipotokiralama.com/excel_ai/" 
 
-def add_sheet(name, url):
-    conn = sqlite3.connect('sheets.db')
-    c = conn.cursor()
-    c.execute("INSERT INTO sheets (name, url) VALUES (?, ?)", (name, url))
-    conn.commit()
-    conn.close()
-
-def delete_sheet(sheet_id):
-    conn = sqlite3.connect('sheets.db')
-    c = conn.cursor()
-    c.execute("DELETE FROM sheets WHERE id=?", (sheet_id,))
-    conn.commit()
-    conn.close()
-
-# Veritabanını başlat ve varsayılan linki kontrol et
-init_db()
-default_name = "Ana Finans Tablosu (Varsayılan)"
-default_url = "https://docs.google.com/spreadsheets/d/109p_A1AW4phVCDol24uOWNV6cxh_9leL"
-
-# Eğer veritabanı boşsa, verdiğin linki ekle
-sheets_list = get_sheets()
-if not sheets_list:
-    add_sheet(default_name, default_url)
-    sheets_list = get_sheets()
-
-# --- 3. KENAR ÇUBUĞU (DOSYA YÖNETİMİ) ---
-with st.sidebar:
-    st.header("📂 Dosya Yöneticisi")
-    
-    # Mevcut dosyaları listeleme
-    sheet_options = {row[1]: row[2] for row in sheets_list} # {Name: URL}
-    
-    if sheet_options:
-        selected_name = st.selectbox("İncelenecek Dosya:", list(sheet_options.keys()))
-        current_url = sheet_options[selected_name]
+if encoded_list:
+    try:
+        decoded_json = urllib.parse.unquote(encoded_list)
+        received_links = json.loads(decoded_json)
         
-        st.success(f"Seçilen: {selected_name}")
-        
-        # Yeni Dosya Ekleme
-        st.divider()
-        with st.expander("➕ Yeni Dosya Ekle"):
-            new_name = st.text_input("Dosya Adı")
-            new_url = st.text_input("Google Sheets Linki")
-            if st.button("Ekle"):
-                if new_name and new_url:
-                    add_sheet(new_name, new_url)
-                    st.rerun() # Listeyi yenile
-        
-        # Dosya Silme (Geliştirici için basit tutuldu)
-        with st.expander("🗑️ Dosya Sil"):
-            # Mevcutları ID ile listele
-            for sheet_id, name, url in sheets_list:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    st.text(name)
-                with col2:
-                    if st.button("Sil", key=f"del_{sheet_id}"):
-                        delete_sheet(sheet_id)
-                        st.rerun()
-
-# --- 4. VERİ YÜKLEME MANTIĞI ---
-# Otomatik olarak seçili dosyayı yükle
-df = None
-data_text = ""
-
-try:
-    if current_url:
-        sheet_id = current_url.split("/d/")[1].split("/")[0]
-        csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-        
-        # Veriyi Session State'e kaydet ki her render'da tekrar tekrar indirmesin
-        if "active_data" not in st.session_state or st.session_state["active_url"] != current_url:
-            with st.spinner("Veri indiriliyor..."):
-                df = pd.read_csv(csv_url, encoding='utf-8-sig')
-                df.columns = df.columns.str.strip()
-                st.session_state.df = df
-                st.session_state.active_data = df.head(500).to_string() # Limit
-                st.session_state.active_url = current_url
-                
-        if "active_data" in st.session_state:
-            df = st.session_state.df
-            data_text = st.session_state.active_data
+        if isinstance(received_links, list) and len(received_links) > 0:
+            # --- DÖKÜMAN SEÇİMİ ---
+            st.header("📂 Aktif Dosya Seçimi")
             
-except Exception as e:
-    st.error(f"Veri Yükleme Hatası: {e}")
-    data_text = None
+            # Kullanıcıya gelen linklerden birini seçtirelim
+            # Linkler uzun olduğu için sadece numara veya kısa isim gösterelim
+            file_options = {}
+            for i, url in enumerate(received_links):
+                file_options[f"{i+1}. Dosya"] = url
+            
+            selected_file = st.selectbox("Hangi dosyayı analiz etmek istiyorsunuz?", list(file_options.keys()))
+            
+            if selected_file:
+                url_to_load = file_options[selected_file]
+                sheet_id = url_to_load.split("/d/")[1].split("/")[0]
+                csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+                
+                with st.spinner("Veri yükleniyor..."):
+                    df = pd.read_csv(csv_url, encoding='utf-8-sig')
+                    df.columns = df.columns.str.strip()
+                    st.session_state.df = df
+                    st.session_state.active_data = df.head(50).to_string() # Limitli
+                
+                st.success(f"Veri başarıyla yüklendi! ({len(df)} satır)")
+                st.dataframe(df.head(10))
 
-# --- 5. SOHBET ARAYÜZÜ ---
-st.title("💼 Finansal Analiz Asistanı")
-if df is not None:
-    st.caption(f"✅ {selected_name} yüklü. {len(df)} satır veriden ilk 500 satır analiz ediliyor.")
-    st.dataframe(df.head(200))
+            # --- SOHBET KISMI ---
+            st.divider()
+            st.subheader("💬 AI Analiz Asistanı")
 
-st.divider()
+            if "messages" not in st.session_state:
+                st.session_state.messages = []
 
-# Sohbet Geçmişi
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
 
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+            if prompt := st.chat_input("Veri hakkında bir soru sor..."):
+                if client is None: st.stop()
+                
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                with st.chat_message("user"):
+                    st.markdown(prompt)
 
-# Soru Sorma
-if prompt := st.chat_input("Veri hakkında sor (Örn: Toplam satış ne kadar?):"):
-    if client is None: st.stop()
-    
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
+                with st.chat_message("assistant"):
+                    message_placeholder = st.empty()
+                    full_response = ""
+                    
+                    if st.session_state.get("active_data"):
+                        system_content = f"""Sen finans asistanısın. Veri: {st.session_state.active_data}"""
+                        try:
+                            stream = client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[
+                                    {"role": "system", "content": system_content},
+                                    *st.session_state.messages
+                                ],
+                                stream=True,
+                            )
+                            for chunk in stream:
+                                full_response += chunk.choices[0].delta.content or ""
+                                message_placeholder.markdown(full_response + "▌")
+                        except Exception as e:
+                            full_response = f"Hata: {e}"
+                    else:
+                        full_response = "Lütfen önce bir dosya seçin."
 
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        if not data_text:
-            full_response = "Lütfen geçerli bir Google Sheets dosyası seçildiğinden emin olun."
+                    message_placeholder.markdown(full_response)
+                
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                
         else:
-            system_content = f"""
-            Sen uzman bir finans asistanısın. Aşağıdaki tabloya göre soruları cevapla.
-            Tablo:
-            {data_text}
-            """
-            try:
-                stream = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": system_content},
-                        *st.session_state.messages
-                    ],
-                    stream=True,
-                )
-                for chunk in stream:
-                    full_response += chunk.choices[0].delta.content or ""
-                    message_placeholder.markdown(full_response + "▌")
-            except Exception as e:
-                full_response = f"Hata: {e}"
-        
-        message_placeholder.markdown(full_response)
+            st.error("Veri formatı hatalı veya boş.")
+
+    except Exception as e:
+        st.error(f"Veri işleme hatası: {e}")
+
+else:
+    # --- YÖNLENDİRME EKRANI ---
+    st.warning("⚠️ Giriş Yapılmadı")
+    st.write("Lütfen Ana Sayfa üzerinden giriş yaparak linklerinizi seçin.")
     
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+    # Butona basınca ana sayfaya git
+    if st.button("Ana Sayfaya Dön", use_container_width=True):
+        st.link_button("🚀 Giriş Paneline Git", ANA_SAYFA_URL)
