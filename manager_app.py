@@ -22,7 +22,7 @@ query_params = st.query_params
 encoded_list = query_params.get("encoded_list", None)
 
 # Ana sayfa yönlendirmesi için link
-ANA_SAYFA_URL = "https://vipotokiralama.com/excel_ai/" 
+ANA_SAYFA_URL = "https://vipotokiralama.com/excel-ai/" 
 
 # --- URL'DEN VERİ ALMA VE İŞLEME ---
 if encoded_list:
@@ -220,3 +220,4 @@ else:
     st.write("Lütfen Ana Sayfa üzerinden giriş yaparak linklerinizi seçin.")
     if st.button("Ana Sayfaya Dön", use_container_width=True):
         st.link_button("🚀 Giriş Paneline Git", ANA_SAYFA_URL)
+
