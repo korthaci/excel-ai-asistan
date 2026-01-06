@@ -21,7 +21,7 @@ client = get_client()
 query_params = st.query_params
 encoded_list = query_params.get("encoded_list", None)
 
-# Ana sayfa yönlendirmesi için link (Senin gerçek URL'inle değiştirmeyi unutma)
+# Ana sayfa yönlendirmesi için link
 ANA_SAYFA_URL = "https://vipotokiralama.com/excel_ai/" 
 
 # --- URL'DEN VERİ ALMA VE İŞLEME ---
@@ -33,9 +33,7 @@ if encoded_list:
         if isinstance(received_links, list) and len(received_links) > 0:
             st.header("📂 Dosya Seçimi")
             
-            # --- KRİTİK KISIM ---
-            # HTML'den gelen veriler artık obje formatında: [{name: "X", url: "Y"}]
-            # Python tarafında da bu şekilde dictionary'yi kurmalıyız.
+            # HTML'den gelen objeleri dictionary'ye çevir (İsim -> URL)
             file_options = {item['name']: item['url'] for item in received_links}
             
             selected_name = st.selectbox("Hangi dosyayı analiz etmek istiyorsunuz?", list(file_options.keys()))
@@ -43,9 +41,8 @@ if encoded_list:
             if selected_name:
                 url_to_load = file_options[selected_name]
                 
-                # Linkin yapısını kontrol et ve ID'yi al (Hata önleme)
+                # Link ID'sini al
                 try:
-                    # Linkte /d/ yoksa veya boşsa hata ver
                     if "/d/" not in url_to_load:
                         st.error("Link formatı hatalı.")
                         st.stop()
@@ -87,69 +84,79 @@ if encoded_list:
                             pass # Hata olursa bu özelliği pas geçiyoruz
 
                     st.divider()
-                    # Veri önizlemesi (Tüm satırlar gösteriliyor)
-
-                    # --- SESLİ KOMUT ÖZELLİĞİ (MOBİL MİKROFON) ---
-
-                    st.write("🎙️ Sesli Sorgu")
-
-                    js_code = """
-                    <script>
-                    function startDictation() {
-                        if (window.hasOwnProperty('webkitSpeechRecognition')) {
-                            var recognition = new webkitSpeechRecognition();
-                            recognition.continuous = false;
-                            recognition.interimResults = false;
-                            recognition.lang = "tr-TR";
-                            recognition.start();
-
-                            recognition.onresult = function(e) {
-                                recognition.stop();
-                                var text = e.results[0][0].transcript;
-                                
-                                // Sonucu Streamlit'in chat input'una yaz ve enter'a bas
-                                // Streamlit input'una JavaScript ile doğrudan erişmek zordur,
-                                // bu yüzden soruyu bir yerde gösterip kullanıcının kopyalamasını isteyeceğiz 
-                                // ya da otomatik göndermeyi deneyeceğiz.
-                                
-                                // En temiz yol: Kullanıcıya sorgusunu gösterip onaylatmak
-                                
-                                alert("Söylediğiniz: " + text);
-                                
-                                // Gizli bir input alanına yazıp Enter'a basma denemesi
-                                var chatInput = document.querySelector('[data-testid="stChatInputTextArea"]');
-                                if(chatInput) {
-                                    chatInput.value = text;
-                                    // Enter tuşu olayını tetikle
-                                    var event = new KeyboardEvent('keydown', {bubbles: true, cancelable: true, keyCode: 13});
-                                    chatInput.dispatchEvent(event);
-                                } else {
-                                    alert("Lütfen metin kutusuna tıklayıp konuştuğunuz yazıyı tekrar yapıştırın veya sesi tekrar açın.");
-                                }
-                            };
-
-                            recognition.onerror = function(e) {
-                                recognition.stop();
-                                alert("Dinleme hatası: " + e.error);
-                            }
-                        } else {
-                            alert("Tarayıcınız sesli aramayı desteklemiyor.");
-                        }
-                    }
-                    </script>
-                    <button onclick="startDictation()" style="width:100%; padding:15px; background-color:#eef2ff; border:2px solid #667eea; border-radius:10px; color:#667eea; font-weight:bold; font-size:16px; cursor:pointer;">
-                        🎙️ Tıklayın ve Konuşun (Sesli Sorgu)
-                    </button>
-                    """
-
-                    # HTML kodunu ekrana bas
-                    st.components.v1.html(js_code)
-                    # Sesli komut js sonu
-
+                    # Veri önizlemesi (Tümü)
                     st.dataframe(df)
 
                     # --- SOHBET KISMI ---
                     st.subheader("💬 Veri Analiz Asistanı")
+
+                    # --- SESLİ KOMUT (SADECE MOBİL) ---
+                    user_agent = st.context.headers.get('User-Agent', '').lower()
+                    is_mobile = any(device in user_agent for device in ['android', 'iphone', 'ipad', 'mobil'])
+
+                    if is_mobile:
+                        st.components.v1.html("""
+                            <style>
+                                .mic-button {
+                                    position: relative;
+                                    display: inline-block;
+                                    margin-left: 15px;
+                                    margin-top: -10px;
+                                    vertical-align: middle;
+                                    cursor: pointer;
+                                    font-size: 24px;
+                                    background: transparent;
+                                    border: none;
+                                }
+                            </style>
+                            <button id="mobileMicBtn" class="mic-button">🎙️</button>
+                            
+                            <script>
+                                document.getElementById('mobileMicBtn').addEventListener('click', function() {
+                                    if (window.hasOwnProperty('webkitSpeechRecognition')) {
+                                        var recognition = new webkitSpeechRecognition();
+                                        recognition.continuous = false;
+                                        recognition.interimResults = false;
+                                        recognition.lang = "tr-TR";
+                                        recognition.start();
+                                
+                                        // Görsel geri bildirim
+                                        this.style.opacity = "0.5";
+                                        this.innerHTML = "🔴";
+                                
+                                        recognition.onresult = function(e) {
+                                            recognition.stop();
+                                            var text = e.results[0][0].transcript;
+                                            
+                                            // İkonu eski haline getir
+                                            var btn = document.getElementById('mobileMicBtn');
+                                            btn.style.opacity = "1";
+                                            btn.innerHTML = "🎙️";
+                                
+                                            // Yazıyı input'a ekle
+                                            var chatInput = document.querySelector('[data-testid="stChatInputTextArea"]');
+                                            if(chatInput) {
+                                                chatInput.value = text;
+                                                var event = new KeyboardEvent('keydown', {bubbles: true, cancelable: true, keyCode: 13});
+                                                chatInput.dispatchEvent(event);
+                                            } else {
+                                                alert("Söylenen: " + text + "\\n(Lütfen yazıyı sohbet kutusuna yapıştırın)");
+                                            }
+                                        };
+                                
+                                        recognition.onerror = function(e) {
+                                            recognition.stop();
+                                            var btn = document.getElementById('mobileMicBtn');
+                                            btn.style.opacity = "1";
+                                            btn.innerHTML = "🎙️";
+                                            alert("Dinleme hatası: " + e.error);
+                                        };
+                                    } else {
+                                        alert("Tarayıcınız sesli aramayı desteklemiyor.");
+                                    }
+                                });
+                            </script>
+                        """)
 
                     if "messages" not in st.session_state:
                         st.session_state.messages = []
